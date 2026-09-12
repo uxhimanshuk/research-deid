@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>research-deid — de-identify interview transcripts</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>research-deid</h1>
+  <p class="tagline">
+    Strip names, emails, phone numbers and organisations out of interview transcripts
+    before they go anywhere else — an LLM, a shared drive, a slide. Pseudonyms stay
+    consistent, so the transcript is still analysable afterwards.
+  </p>
+  <span class="badge" id="netBadge">Runs entirely in this tab · no network</span>
+</header>
+
+<h2><span class="num">01</span> &nbsp;Load transcripts</h2>
+<textarea id="input" spellcheck="false" placeholder="Paste a transcript here, or drop .txt / .md files below."></textarea>
+<div class="row">
+  <input type="file" id="file" multiple accept=".txt,.md,.vtt,.srt,text/plain" hidden>
+  <button id="pick">Add files…</button>
+  <button id="sample">Load a sample</button>
+  <button id="detect" class="primary">Find identifiers</button>
+  <span class="hint" id="inputHint"></span>
+</div>
+<ul class="files" id="fileList"></ul>
+
+<section id="reviewSection" hidden>
+  <h2><span class="num">02</span> &nbsp;Review every replacement</h2>
+  <p class="hint" style="margin-top:-.3rem">
+    Nothing is replaced until you say so. Confident matches are pre-selected; weak
+    guesses are listed unselected so you decide rather than find out later. Give two
+    entries the same label to merge them into one person.
+  </p>
+  <div class="row" style="margin-bottom:1rem">
+    <button id="selHigh">Select confident only</button>
+    <button id="selAll">Select all</button>
+    <button id="selNone">Select none</button>
+    <span class="hint" id="selCount"></span>
+  </div>
+  <div class="row" style="margin:-.4rem 0 1.2rem">
+    <input id="customTerm" class="label-in" style="width:22ch" placeholder="a term it missed…">
+    <button id="addTerm">Add term</button>
+  </div>
+  <div id="groups"></div>
+  <div class="row">
+    <button id="scrub" class="primary">Apply replacements</button>
+  </div>
+</section>
+
+<section id="outputSection" hidden>
+  <h2><span class="num">03</span> &nbsp;Scrubbed output</h2>
+  <div class="tabs" id="tabs"></div>
+  <pre class="out" id="output"></pre>
+  <p class="stat" id="stat"></p>
+  <div class="row">
+    <button id="copy">Copy this transcript</button>
+    <button id="download">Download transcript</button>
+    <button id="downloadKey">Download the key</button>
+  </div>
+  <p class="hint" style="margin-top:.7rem">
+    The key maps each pseudonym back to the real value. It is the one file that can
+    undo this. Keep it somewhere the transcripts are not.
+  </p>
+</section>
+
+<div class="limits">
+  <h3>What this will not catch</h3>
+  <ul id="limitList"></ul>
+  <p>
+    This is a first pass that removes the obvious and the repetitive, not a
+    compliance control. Read the result before you trust it — and if the transcript
+    covers something sensitive enough that a miss would harm someone, read it twice.
+  </p>
+</div>
+
+<footer>
+  Everything above happens in this page. No uploads, no storage, no analytics — open
+  devtools and watch the Network tab if you'd rather check than believe.
+  <br>MIT licensed · <a href="https://github.com/uxrhimanshu/research-deid">source</a>
+</footer>
+
+</div>
+
+<script src="deid.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+
+  var docs = [];        // {name, text, out, count}
+  var entities = [];
+  var activeTab = 0;
+
+  Deid.LIMITS.forEach(function (l) {
+    var li = document.createElement('li');
+    li.textContent = l;
+    $('limitList').appendChild(li);
+  });
+
+  /* --- input ---------------------------------------------------------- */
+
+  $('pick').onclick = function () { $('file').click(); };
+
+  $('file').onchange = function (e) {
+    Array.prototype.forEach.call(e.target.files, function (f) {
+      var r = new FileReader();
+      r.onload = function () { docs.push({ name: f.name, text: String(r.result) }); renderFiles(); };
+      r.readAsText(f);
+    });
+    e.target.value = '';
+  };
+
+  function renderFiles() {
+    var ul = $('fileList');
+    ul.textContent = '';
+    docs.forEach(function (d, i) {
+      var li = document.createElement('li');
+      var span = document.createElement('span');
+      span.textContent = d.name + '  ·  ' + d.text.length.toLocaleString() + ' chars';
+      var rm = document.createElement('button');
+      rm.textContent = 'remove';
+      rm.onclick = function () { docs.splice(i, 1); renderFiles(); };
+      li.appendChild(span); li.appendChild(rm);
+      ul.appendChild(li);
+    });
+    $('inputHint').textContent = docs.length
+      ? docs.length + ' file' + (docs.length > 1 ? 's' : '') + ' queued — pseudonyms will be shared across them'
+      : '';
+  }
+
+  $('sample').onclick = function () {
+    $('input').value = SAMPLE;
+    $('inputHint').textContent = 'Sample loaded — invented people, invented company.';
+  };
+
+  /* --- detect --------------------------------------------------------- */
+
+  $('detect').onclick = function () {
+    var pasted = $('input').value.trim();
+    var set = docs.slice();
+    if (pasted) { set.unshift({ name: 'pasted text', text: $('input').value }); }
+    if (!set.length) { $('inputHint').textContent = 'Nothing to scan yet.'; return; }
+    docs = set;
+
+    // One shared entity list across every document, so P1 is the same person in all of them.
+    var all = [];
+    docs.forEach(function (d) { all = all.concat(Deid.detect(d.text)); });
+    entities = Deid.suggestLabels(Deid.toEntities(all));
+    entities.forEach(function (e) {
+      e.include = (e.confidence === 'high' || e.confidence === 'medium');
+    });
+    renderReview();
+    $('reviewSection').hidden = false;
+    $('outputSection').hidden = true;
+    $('reviewSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  /* --- review --------------------------------------------------------- */
+
+  var TYPE_LABEL = {
+    person: 'People', org: 'Organisations', email: 'Email addresses',
+    phone: 'Phone numbers', url: 'Links', custom: 'Terms you added'
+  };
+
+  function renderReview() {
+    var box = $('groups');
+    box.textContent = '';
+    ['person', 'org', 'email', 'phone', 'url', 'custom'].forEach(function (type) {
+      var items = entities.filter(function (e) { return e.type === type; });
+      if (!items.length) { return; }
+      var g = document.createElement('div');
+      g.className = 'group';
+      var h = document.createElement('div');
+      h.className = 'group-head';
+      h.textContent = TYPE_LABEL[type] + ' (' + items.length + ')';
+      g.appendChild(h);
+      items.forEach(function (e) { g.appendChild(entityRow(e)); });
+      box.appendChild(g);
+    });
+    updateCount();
+  }
+
+  function entityRow(e) {
+    var row = document.createElement('div');
+    row.className = 'entity' + (e.include ? '' : ' off');
+
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!e.include;
+    cb.setAttribute('aria-label', 'Replace ' + e.text);
+    cb.onchange = function () {
+      e.include = cb.checked;
+      row.className = 'entity' + (e.include ? '' : ' off');
+      updateCount();
+    };
+
+    var val = document.createElement('div');
+    val.className = 'val';
+    val.textContent = e.text + (e.count > 1 ? '  ×' + e.count : '');
+
+    var conf = document.createElement('span');
+    conf.className = 'conf ' + e.confidence;
+    conf.textContent = e.confidence;
+
+    var label = document.createElement('input');
+    label.className = 'label-in';
+    label.value = e.label;
+    label.setAttribute('aria-label', 'Replacement for ' + e.text);
+    label.oninput = function () { e.label = label.value; };
+
+    row.appendChild(cb); row.appendChild(val); row.appendChild(conf); row.appendChild(label);
+
+    if (e.contexts && e.contexts.length) {
+      var ctx = document.createElement('div');
+      ctx.className = 'ctx';
+      e.contexts.forEach(function (c) {
+        var line = document.createElement('div');
+        line.appendChild(document.createTextNode('…' + c.before));
+        var mk = document.createElement('mark');
+        mk.textContent = c.match;
+        line.appendChild(mk);
+        line.appendChild(document.createTextNode(c.after + '…'));
+        ctx.appendChild(line);
+      });
+      row.appendChild(ctx);
+    }
+    return row;
+  }
+
+  function updateCount() {
+    var on = entities.filter(function (e) { return e.include; }).length;
+    $('selCount').textContent = on + ' of ' + entities.length + ' selected';
+  }
+
+  $('selHigh').onclick = function () {
+    entities.forEach(function (e) { e.include = e.confidence === 'high'; });
+    renderReview();
+  };
+  $('selAll').onclick = function () { entities.forEach(function (e) { e.include = true; }); renderReview(); };
+  $('selNone').onclick = function () { entities.forEach(function (e) { e.include = false; }); renderReview(); };
+
+  $('addTerm').onclick = function () {
+    var v = $('customTerm').value.trim();
+    if (!v) { return; }
+    var n = entities.filter(function (e) { return e.type === 'custom'; }).length + 1;
+    entities.unshift({
+      type: 'custom', text: v, count: 0, confidence: 'high',
+      contexts: [], label: '[TERM-' + n + ']', include: true
+    });
+    $('customTerm').value = '';
+    renderReview();
+  };
+
+  $('customTerm').onkeydown = function (ev) { if (ev.key === 'Enter') { $('addTerm').click(); } };
+
+  /* --- apply ---------------------------------------------------------- */
+
+  $('scrub').onclick = function () {
+    docs.forEach(function (d) {
+      var r = Deid.apply(d.text, entities);
+      d.out = r.text;
+      d.count = r.replacements;
+    });
+    activeTab = 0;
+    renderTabs();
+    renderOutput();
+    $('outputSection').hidden = false;
+    $('outputSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  function renderTabs() {
+    var t = $('tabs');
+    t.textContent = '';
+    if (docs.length < 2) { return; }
+    docs.forEach(function (d, i) {
+      var b = document.createElement('button');
+      b.textContent = d.name;
+      b.setAttribute('aria-selected', i === activeTab ? 'true' : 'false');
+      b.onclick = function () { activeTab = i; renderTabs(); renderOutput(); };
+      t.appendChild(b);
+    });
+  }
+
+  function renderOutput() {
+    var d = docs[activeTab];
+    var pre = $('output');
+    pre.textContent = '';
+    // Highlight the inserted labels so what changed is visible at a glance.
+    var labels = entities.filter(function (e) { return e.include && e.label; })
+      .map(function (e) { return e.label; });
+    var uniq = labels.filter(function (v, i) { return labels.indexOf(v) === i; })
+      .sort(function (a, b) { return b.length - a.length; });
+    if (!uniq.length) { pre.textContent = d.out; }
+    else {
+      var re = new RegExp(uniq.map(function (s) {
+        return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }).join('|'), 'g');
+      var last = 0, m;
+      while ((m = re.exec(d.out)) !== null) {
+        pre.appendChild(document.createTextNode(d.out.slice(last, m.index)));
+        var b = document.createElement('b');
+        b.textContent = m[0];
+        pre.appendChild(b);
+        last = m.index + m[0].length;
+      }
+      pre.appendChild(document.createTextNode(d.out.slice(last)));
+    }
+    $('stat').textContent = d.count.toLocaleString() + ' replacement' + (d.count === 1 ? '' : 's') +
+      ' in ' + d.name + ' · ' + entities.filter(function (e) { return e.include; }).length + ' distinct values';
+  }
+
+  $('copy').onclick = function () {
+    var d = docs[activeTab];
+    navigator.clipboard.writeText(d.out).then(function () {
+      $('copy').textContent = 'Copied';
+      setTimeout(function () { $('copy').textContent = 'Copy this transcript'; }, 1400);
+    });
+  };
+
+  function save(name, content) {
+    var blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  $('download').onclick = function () {
+    var d = docs[activeTab];
+    save(d.name.replace(/(\.\w+)?$/, '') + '.deid.txt', d.out);
+  };
+
+  $('downloadKey').onclick = function () {
+    var key = {
+      generated: new Date().toISOString(),
+      note: 'Maps pseudonyms back to the original values. Store separately from the scrubbed transcripts.',
+      documents: docs.map(function (d) { return d.name; }),
+      mapping: entities.filter(function (e) { return e.include; })
+        .map(function (e) { return { label: e.label, original: e.text, type: e.type }; })
+    };
+    save('deid-key.json', JSON.stringify(key, null, 2));
+  };
+
+  /* --- sample --------------------------------------------------------- */
+
+  var SAMPLE = [
+    'Interviewer: Thanks for making the time. Could you start with your role?',
+    '',
+    'Priya Raman: Sure. I am a senior analyst at Northwind Systems Ltd — about four',
+    'years now. Before that I was at Halcyon GmbH in Munich.',
+    '',
+    'Interviewer: And who else sits on the team?',
+    '',
+    'Priya Raman: There is Dr. Okafor, who runs it, and Mark. Priya does the tier-one',
+    'triage — the other Priya, I mean, we have two. If you need anything you can',
+    'reach me on priya.raman@northwind-systems.com or +49 89 2176 4410.',
+    '',
+    'Interviewer: What happens when an alert fires overnight?',
+    '',
+    'Priya Raman: Honestly? It sits. Okafor wants everything marked by morning, so we',
+    'mark them in bulk and sort it out later. The runbook is at',
+    'https://wiki.northwind-systems.com/soc/runbook but nobody opens it at 3am.'
+  ].join('\n');
+
+})();
+</script>
+</body>
+</html>
