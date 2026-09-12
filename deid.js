@@ -292,7 +292,9 @@
     'Two different people who share a first name. They merge into one pseudonym, because the engine links names by their tokens and cannot tell them apart. Split them by hand in the review step.',
     'Anything in an image, a screenshot or a PDF — this reads plain text only.',
     'Re-identification by combination. Removing every name does not stop "the only female VP in our Munich office" identifying someone.',
-    'Languages and scripts its capitalisation rules do not fit. Non-Latin scripts are not detected at all.'
+    'Languages and scripts its capitalisation rules do not fit. Non-Latin scripts are not detected at all.',
+    'Text that is not an interview. The person rules assume a capitalised token is usually a name, which holds in a transcript and fails on technical writing, where it is usually a product — "Let\'s Encrypt" and "Google Analytics" are both detected as people. Measured on a forum corpus, not a guess.',
+    'Numbers that are not phone numbers. On the same corpus the phone rule matched software version numbers, IP addresses, dates and forum post ids. Both of these are why the review step exists; neither is safe to auto-apply outside an interview transcript.'
   ];
 
   global.Deid = {

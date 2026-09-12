@@ -70,6 +70,26 @@ Stated in the tool as well as here, because nobody reads the README first:
 This is a first pass, not a compliance control. Read the output before you trust
 it. If a miss would harm a participant, read it twice.
 
+### It is for interview transcripts, and it shows outside one
+
+Measured rather than assumed. Run over a corpus of technical forum posts in
+[`clicked-through`](https://github.com/uxrhimanshu/clicked-through), it changed 647
+items with 3,205 replacements, and most of them were wrong.
+
+The person rules assume a capitalised token is usually a name. That holds in a
+transcript. In technical writing a capitalised token is usually a product, so
+**"Let's Encrypt", "Monte Carlo" and "Google Analytics" were all detected as
+people.** Restricting it to phone numbers was no better: it matched software
+version numbers, IP addresses, dates and forum post ids.
+
+That study ended up scrubbing only email addresses, and said so in its method.
+
+Two things follow. The tool is scoped to interview transcripts and should not be
+pointed at prose of another kind without checking every replacement. And this is
+the clearest argument for the review step: run without one, it would have quietly
+rewritten the corpus a study depended on, and the damage would have looked like
+data.
+
 ## The key file
 
 Exporting gives you the scrubbed transcript and, separately, a key mapping each
