@@ -3,7 +3,7 @@
 Strip names, emails, phone numbers and organisations out of interview transcripts
 before they go anywhere else — an LLM, a shared drive, a slide, a colleague's inbox.
 
-**[Open the tool →](https://uxrhimanshu.github.io/research-deid/)**
+**[Open the tool →](https://uxhimanshuk.github.io/research-deid/)**
 
 It runs entirely in the tab. No upload, no account, no server, no storage. Save the
 page and it works offline, from a file, on a plane.
@@ -73,7 +73,7 @@ it. If a miss would harm a participant, read it twice.
 ### It is for interview transcripts, and it shows outside one
 
 Measured rather than assumed. Run over a corpus of technical forum posts in
-[`clicked-through`](https://github.com/uxrhimanshu/clicked-through), it changed 647
+[`clicked-through`](https://github.com/uxhimanshuk/clicked-through), it changed 647
 items with 3,205 replacements, and most of them were wrong.
 
 The person rules assume a capitalised token is usually a name. That holds in a
@@ -123,4 +123,4 @@ README has to change with it.
 
 ---
 
-Built by [Himanshu Kalra](https://uxrhimanshu.com). MIT licensed.
+Built by [Himanshu Kalra](https://himanshukalra.com). MIT licensed.
